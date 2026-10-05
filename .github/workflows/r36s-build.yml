@@ -1,0 +1,88 @@
+name: R36S ARM64 Build
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - r36s-portmaster
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout Starship
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            cmake \
+            ninja-build \
+            pkg-config \
+            gcc-aarch64-linux-gnu \
+            g++-aarch64-linux-gnu \
+            libsdl2-dev \
+            libglew-dev \
+            libogg-dev \
+            libvorbis-dev \
+            libzip-dev \
+            libpng-dev \
+            libbz2-dev \
+            zlib1g-dev \
+            libspdlog-dev \
+            libtinyxml2-dev \
+            nlohmann-json3-dev
+
+      - name: Show toolchains
+        run: |
+          echo "=== HOST ==="
+          uname -m
+          gcc --version
+          g++ --version
+
+          echo "=== TARGET ==="
+          aarch64-linux-gnu-gcc --version
+          aarch64-linux-gnu-g++ --version
+
+      - name: Configure host Torch
+        run: |
+          cmake \
+            -S tools/Torch \
+            -B build-host-torch \
+            -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build host Torch
+        run: |
+          cmake --build build-host-torch --parallel 2
+
+      - name: Verify host Torch
+        run: |
+          echo "=== Torch binaries ==="
+          find build-host-torch -type f -name 'torch*' -print
+
+          TORCH="$(find build-host-torch -type f -name torch -perm -111 | head -n 1)"
+
+          if [ -z "$TORCH" ]; then
+            echo "ERROR: Host Torch executable not found"
+            exit 1
+          fi
+
+          echo "Torch: $TORCH"
+          file "$TORCH"
+
+      - name: Verify ARM64 compiler
+        run: |
+          cat > /tmp/hello.c <<'EOF'
+          int main(void) { return 0; }
+          EOF
+
+          aarch64-linux-gnu-gcc /tmp/hello.c -o /tmp/hello-arm64
+
+          echo "=== ARM64 test executable ==="
+          file /tmp/hello-arm64
