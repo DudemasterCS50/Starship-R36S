@@ -607,21 +607,39 @@ add_custom_command(
 )
 
 if(NOT CMAKE_SYSTEM_NAME STREQUAL "NintendoSwitch")
-include(ExternalProject)
-ExternalProject_Add(TorchExternal
-	PREFIX TorchExternal
-    SOURCE_DIR ${CMAKE_SOURCE_DIR}/tools/Torch
-    CMAKE_ARGS -DCMAKE_INSTALL_PREFIX=${CMAKE_BINARY_DIR}/Torch
-)
-ExternalProject_Get_Property(TorchExternal install_dir)
-if (MSVC)
-  set(TORCH_EXECUTABLE ${install_dir}/src/TorchExternal-build/$<CONFIGURATION>/torch)
+
+# During cross-compilation, Torch must run on the build host (x86_64),
+# not on the target (AArch64/R36S).
+set(STARSHIP_HOST_TORCH "" CACHE FILEPATH
+    "Path to a host-native Torch executable used during cross-compilation")
+
+if(STARSHIP_HOST_TORCH)
+    message(STATUS "Using host Torch: ${STARSHIP_HOST_TORCH}")
+    set(TORCH_EXECUTABLE "${STARSHIP_HOST_TORCH}")
+    set(TORCH_DEPENDENCY "")
 else()
-  set(TORCH_EXECUTABLE ${install_dir}/src/TorchExternal-build/torch)
+    include(ExternalProject)
+    ExternalProject_Add(TorchExternal
+        PREFIX TorchExternal
+        SOURCE_DIR ${CMAKE_SOURCE_DIR}/tools/Torch
+        CMAKE_ARGS -DCMAKE_INSTALL_PREFIX=${CMAKE_BINARY_DIR}/Torch
+    )
+
+    ExternalProject_Get_Property(TorchExternal install_dir)
+
+    if(MSVC)
+        set(TORCH_EXECUTABLE
+            ${install_dir}/src/TorchExternal-build/$<CONFIGURATION>/torch)
+    else()
+        set(TORCH_EXECUTABLE
+            ${install_dir}/src/TorchExternal-build/torch)
+    endif()
+
+    set(TORCH_DEPENDENCY TorchExternal)
 endif()
 add_custom_target(
     ExtractAssets
-    DEPENDS TorchExternal
+    DEPENDS ${TORCH_DEPENDENCY}
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
     COMMAND ${TORCH_EXECUTABLE} o2r baserom.z64
     COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CMAKE_SOURCE_DIR}/sf64.o2r" "${CMAKE_BINARY_DIR}/sf64.o2r"
@@ -629,7 +647,7 @@ add_custom_target(
 
 add_custom_target(
     GeneratePortO2R
-    DEPENDS TorchExternal
+    DEPENDS ${TORCH_DEPENDENCY}
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
     COMMAND ${TORCH_EXECUTABLE} pack port starship.o2r o2r
     COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CMAKE_SOURCE_DIR}/starship.o2r" "${CMAKE_BINARY_DIR}/starship.o2r"
